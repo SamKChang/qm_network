@@ -62,8 +62,8 @@ def train_test_valid(inp_grp, valid_ind, train_inds=None, random_seed=0):
     if valid_ind >= len(inp_grp):
         valid_ind = len(inp_grp) - 1
     inp_valid = inp_grp[valid_ind]
-    if valid_ind > 0:
-        if train_inds is None: train_inds = range(len(inp_grp))
+    if train_inds is None: train_inds = range(len(inp_grp))
+    if len(train_inds) > 1:
         inps_all = list(qtk.flatten([inp_grp[i] for i in train_inds if i != valid_ind]))
     else:
         inps_all = list(qtk.flatten([inp_grp[i] for i in train_inds]))
@@ -124,3 +124,26 @@ def tfIO_batch(mol_list, batch_size, inds=None):
         C.append(C_b)
         y.append(y_b)
     return I, Er, occ, nn, C, y
+
+def get_C_prd(qmnet_model, model_file_name, inp_in):
+    I_list, Er_list, occ_list, nn_list, C_list, y_list = qnt.tfIO_batch(inp_in, 100)
+    
+    tf.reset_default_graph()
+    g = tf.Graph()
+
+    with g.as_default():
+        y_prd, C_prd, param = qmnet_model(g, I_list[0][0].shape[-1])
+        I, Er, occ, nn, keep_prob = param
+        #y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+        
+        saver = tf.train.Saver()
+        with tf.Session() as sess:
+            saver.restore(sess, model_file_name)
+            C_out_list, y_out_list = [], []
+            for I_v, Er_v, occ_v, nn_v in zip(I_list, Er_list, occ_list, nn_list):
+                valid_dict = {I:I_v, Er:Er_v, occ:occ_v, nn:nn_v, keep_prob:1.0}
+                C_out, y_out = sess.run([C_prd, y_prd], feed_dict=valid_dict)
+                C_out_list.extend(C_out)
+                y_out_list.extend(y_out)
+            
+            return C_out_list, y_out_list

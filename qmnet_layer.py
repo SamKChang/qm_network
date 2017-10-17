@@ -3,6 +3,12 @@ import numpy as np
 
 tf.reset_default_graph()
 
+def orth(A):
+    """??"""
+    AA =tf.matmul(tf.transpose(A),A)
+    L = tf.cholesky(AA)
+    return tf.transpose(tf.matrix_solve(L,tf.transpose(A)))
+
 def lrelu(x, alpha):
     """Leaky ReLU activation function"""
     return tf.nn.relu(x) - alpha * tf.nn.relu(-x)
@@ -99,6 +105,41 @@ def SCF_rnn_layer(I, C_prd, rnn_size=None, keep_prob=1.0, N_layer=1, fc_layer=0)
 
     return C_out
 
+def orthogonal_qr_fc_layer(I, C_prd, keep_prob=1.0, N_layer=1):
+    """
+    orthogonalize predicted MO coefficients, C_prd
+    some flexibility seems to be necessary to overfit to H2 system
+    """
+    C_prd.set_shape(I[:,0].get_shape())
+    input_flatten = flatten(C_prd)
+ 
+    itr = 0
+    for _ in range(N_layer):
+        Wn = tf.Variable(tf.truncated_normal(
+            (input_flatten.get_shape().as_list()[-1], input_flatten.get_shape().as_list()[-1]),
+            dtype=tf.float64
+        ), dtype=tf.float64, name='weights_qr')
+        bn = tf.Variable(tf.zeros(
+            input_flatten.get_shape().as_list()[-1], dtype=tf.float64
+        ), dtype=tf.float64, name='biases_qr')
+
+        input_flatten = tf.add(tf.matmul(input_flatten, Wn), bn)
+
+        if itr < N_layer - 1:
+            input_flatten = tf.nn.dropout(input_flatten, keep_prob=keep_prob)
+
+        itr += 1
+
+    C_new = tf.reshape(
+        input_flatten,
+        [-1, tf.shape(C_prd)[1], tf.shape(C_prd)[2]]
+    )
+    C_new.set_shape(C_prd.get_shape())
+
+    C_out = tf.qr(C_new)[0]
+
+    return tf.matmul(I[:,-1], C_out)
+
 def orthogonal_fc_layer(I, C_prd, keep_prob=1.0, N_layer=1):
     """
     orthogonalize predicted MO coefficients, C_prd
@@ -176,6 +217,41 @@ def Fock_matrix(I, Er, occ, nn, C_prd):
     Fock = tf.add(tf.add(tf.add(K, V), 2*J_kernel), -1*X_kernel)
     
     return Fock
+
+def SCF_iteration_layer(I, Er, occ, nn, C_prd=None):
+
+    if C_prd is None:
+        C_prd = I[:,-2]
+    F = Fock_matrix(I, Er, occ, nn, C_prd)
+    X = I[:, -1]
+    XT = tf.transpose(X, perm=[0,2,1])
+    
+    XFX = tf.matmul(XT, tf.matmul(F, X))
+
+    _, C_out = tf.self_adjoint_eig(XFX)
+    C_out.set_shape(I[:,0].get_shape())
+    
+    return tf.matmul(X, C_out)
+
+def Fock_matrix_error(I, Er, occ, nn, C_prd):
+    """return predicted energy from predicted MO coefficients C_prd"""
+
+    S = I[:, 0]
+
+    F = Fock_matrix(I, Er, occ, nn, C_prd)
+
+    Fc_occ = tf.matmul(F, C_prd)
+    Sc_occ = tf.matmul(S, C_prd)
+    Fc_occT = tf.transpose(Fc_occ, perm=[0,2,1])
+    Sc_occT = tf.transpose(Sc_occ, perm=[0,2,1])
+    FS = tf.matrix_diag_part(tf.matmul(Fc_occT, Sc_occ))
+    SS = tf.matrix_diag_part(tf.matmul(Sc_occT, Sc_occ))
+    SS_inv = tf.where(tf.less(SS, 1e-7), SS, 1./SS)
+    epsilon = tf.multiply(FS, SS_inv)
+    eSc = tf.multiply(tf.expand_dims(epsilon, 1), Sc_occ)
+    residue = tf.add(Fc_occ, -eSc)
+
+    return tf.reduce_sum(tf.multiply(residue, residue))
 
 def Fock_matrix_occ_error(I, Er, occ, nn, C_prd):
     """return predicted energy from predicted MO coefficients C_prd"""

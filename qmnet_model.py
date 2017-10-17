@@ -235,6 +235,7 @@ def I0_S2x5_O1x3(graph, n_basis):
 
 def I0_S1x2_d_S1x2_O1x3(graph, n_basis):
     """
+    Works well for H2
     """
 
     with graph.as_default():
@@ -252,4 +253,124 @@ def I0_S1x2_d_S1x2_O1x3(graph, n_basis):
             C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
         y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
     
+    return y_prd, C_prd, param
+
+def I0_S1x2_d_S1x2_O1x3_SCF(graph, n_basis):
+    """
+    Works well for H2
+    """
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(2):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        C_prd = tf.nn.dropout(C_prd, keep_prob)
+        for _ in range(2):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(3):
+            C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
+        C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def I0_S1x4_O1_SCFx2(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(4):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(2):
+            C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def I0_S1x4_SCFx1(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(4):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def I0_S1x4_O1_SCFx1(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(4):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
+        C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def I0_S1x4_O2_SCFx1(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(4):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(2):
+            C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(1):
+            C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def I0_S1x4_O3_SCFx1(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        # model
+        C_prd = qnl.SCF_fc_layer(I)
+        for _ in range(4):
+            C_prd = qnl.SCF_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(3):
+            C_prd = qnl.orthogonal_fc_layer(I, C_prd, N_layer=1)
+        for _ in range(1):
+            C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+    
+    return y_prd, C_prd, param
+
+def HF_iter_20(graph, n_basis):
+
+    with graph.as_default():
+        # input tensors
+        I, Er, occ, nn, keep_prob, param = qnt.get_input(graph, n_basis)
+
+        C_prd = None
+        for _ in range(20):
+            C_prd = qnl.SCF_iteration_layer(I, Er, occ, nn, C_prd)
+        y_prd = qnl.HF_energy_layer(I, Er, occ, nn, C_prd)
+
     return y_prd, C_prd, param

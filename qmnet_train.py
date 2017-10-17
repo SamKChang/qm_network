@@ -11,6 +11,7 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
           learn_rate_steps=50, learn_rate_start=0.1, learn_rate_base=0.5,
           batch_size=32, random_seed=0, max_mean_ratio=50., reg_scale = 0.,
           optimizer=tf.train.AdamOptimizer, fock_scale=0.001,
+          save_full_valid_Cprd=False,
          ):
     
     def log_msg(msg, output=True):
@@ -40,6 +41,7 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
     status += "model: " + str(qmnet_model) + "\n"
     status += "train/test/validation size: %d/%d/%d \n" % (len(inp_train), len(inp_test), len(inp_valid))
     status += "optimizer: " + str(optimizer) + "\n"
+    status += "loss: " + str(loss) + "\n"
     status += "reg_scale: " + str(reg_scale) + "\n"
     status += "keep_prob: " + str(kp) + "\n"
     status += "batch size: " + str(I_train[0].shape[0]) + "\n"
@@ -69,32 +71,14 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
         y_prd, C_prd, param = qmnet_model(g, inp_valid[0].olp.shape[0])
         I, Er, occ, nn, keep_prob = param
         if loss == 'energy':
-            err_mean = tf.reduce_mean(tf.pow(y - y_prd, 2))
-            err_max = tf.reduce_max(tf.pow(y - y_prd, 2))
-            #err = err_mean + err_max
-            err = err_mean
+            err = tf.reduce_mean(tf.abs(y - y_prd))
+            energy_err = err
         elif loss == 'fock':
-            Fock = y_prd
-            Fock_diag = tf.matrix_diag(tf.matrix_diag_part(Fock))
-            Fock_off_diag = tf.add(Fock, -1*Fock_diag)
-            err = tf.reduce_mean(tf.multiply(Fock_off_diag, Fock_off_diag))
-            err_max = err
-        elif loss == 'fock_occ':
-            #Fock = y_prd
-            #Fock_diag = tf.matrix_diag(tf.matrix_diag_part(Fock))
-            #Fock_off_diag = tf.add(Fock, -1*Fock_diag)
-            #err = tf.reduce_mean(tf.multiply(Fock_off_diag, Fock_off_diag))
-            err = y_prd
-            err_max = err
-            err_mean = err
-        elif loss == 'energy_fock':
-            err_mean = tf.reduce_mean(tf.pow(y - y_prd, 2))
-            err_max = tf.reduce_max(tf.pow(y - y_prd, 2))
-            Fock = qnl.Fock_matrix(I, Er, occ, nn, C_prd)
-            Fock_diag = tf.matrix_diag(tf.matrix_diag_part(Fock))
-            Fock_off_diag = tf.add(Fock, -1*Fock_diag)
-            err_fock = tf.reduce_mean(tf.multiply(Fock_off_diag, Fock_off_diag))
-            err = err_mean + fock_scale * err_fock
+            err = qnl.Fock_matrix_error(I, Er, occ, nn, C_prd)
+            energy_err = tf.reduce_mean(tf.abs(y - y_prd))
+        elif loss == 'energy_minimize':
+            err = tf.reduce_mean(y_prd)
+            energy_err = tf.reduce_mean(tf.abs(y - y_prd))
 
         # construct weights/biases regularizer
         reg_loss = tf.zeros([1], tf.float64)
@@ -155,7 +139,7 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
                 zip(I_train, Er_train, occ_train, nn_train, C_train, y_train):
                     train_dict = {I:I_b, Er:Er_b, occ:occ_b, nn:nn_b, y:y_b, keep_prob:kp, n_epoch:epoch}
                     sess.run(optimizer, feed_dict=train_dict)
-                    train_err_list.append(sess.run(err, feed_dict=train_dict))
+                    train_err_list.append(sess.run(energy_err, feed_dict=train_dict))
                 train_err = np.average(train_err_list, weights=[len(_) for _ in I_train])
                 current_learn_rate = sess.run(learn_rate, feed_dict=train_dict)
 
@@ -167,7 +151,7 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
                 test_err_list = []
                 for I_t, Er_t, occ_t, nn_t, C_t, y_t in zip(I_test, Er_test, occ_test, nn_test, C_test, y_test):
                     test_dict = {I:I_t, Er:Er_t, occ:occ_t, nn:nn_t, y:y_t, keep_prob:1.0}
-                    test_err_list.append(sess.run(err, feed_dict=test_dict))
+                    test_err_list.append(sess.run(energy_err, feed_dict=test_dict))
                 test_err = np.average(test_err_list, weights=[len(_) for _ in I_test])
 
 
@@ -186,11 +170,19 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
                 ##############
                 # check validation performance
                 valid_err_list = []
+                C_valid_hist_list = []
                 for I_v, Er_v, occ_v, nn_v, C_v, y_v in \
                 zip(I_valid, Er_valid, occ_valid, nn_valid, C_valid, y_valid):
                     valid_dict = {I:I_v, Er:Er_v, occ:occ_v, nn:nn_v, y:y_v, keep_prob:1.0}
-                    valid_err_list.append(sess.run(err, feed_dict=valid_dict))
+                    if not save_full_valid_Cprd:
+                        valid_err_list.append(sess.run(energy_err, feed_dict=valid_dict))
+                    else:
+                        ve, Cv = sess.run([energy_err, C_out], feed_dict=valid_dict)
+                        valid_err_list.append(ve)
+                        C_valid_hist_list.append(np.array(Cv))
                 valid_err = np.average(valid_err_list, weights=[len(_) for _ in I_valid])
+                if save_full_valid_Cprd:
+                    C_valid_hist.append(np.concatenate(C_valid_hist_list))
 
                 ################
                 # SAVE HISTORY #
@@ -201,7 +193,8 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
                 test_err_hist.append(test_err)
                 C_test_hist.append(np.array(sess.run(C_out, feed_dict=test2_dict)))
                 valid_err_hist.append(valid_err)
-                C_valid_hist.append(np.array(sess.run(C_out, feed_dict=valid2_dict)))
+                if not save_full_valid_Cprd:
+                    C_valid_hist.append(np.array(sess.run(C_out, feed_dict=valid2_dict)))
                 #################
                 # STATUS REPORT #
                 #################
@@ -211,17 +204,16 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
 
                 log_msg(msg + "\n", False)
 
-                if epoch % print_step == 0:
+                if epoch % print_step == 0 or epoch % save_step == 0:
                     print msg
-                if epoch % save_step == 0:
-                    print msg
-                    hs = hist_step
-                    qtk.save([train_err_hist[::hs], test_err_hist[::hs], valid_err_hist[::hs], 
-                              C_valid_hist[::hs], C_test_hist[::hs], learn_rate_hist[::hs]], 
-                             "%s_hist.pkl" % root_name)
-                    save_path_out = saver.save(sess, save_path)
-                    msg = "Model and history backup"
-                    log_msg(msg + "\n")
+                    if epoch % save_step == 0:
+                        hs = hist_step
+                        qtk.save([train_err_hist[::hs], test_err_hist[::hs], valid_err_hist[::hs], 
+                                  C_valid_hist[::hs], C_test_hist[::hs], learn_rate_hist[::hs]], 
+                                 "%s_hist.pkl" % root_name)
+                        save_path_out = saver.save(sess, save_path)
+                        msg = "Model and history backup"
+                        log_msg(msg + "\n")
 
             ######################
             # TERMINATE AND SAVE #
@@ -229,6 +221,7 @@ def train(qmnet_model, inp_grp, root_name='model', learn_rate_min=0.0001, valid_
             save_path_out = saver.save(sess, save_path)
             msg = "Model saved in file: %s" % save_path_out
             log_msg(msg + "\n")
+            hs = hist_step
             qtk.save([train_err_hist[::hs], test_err_hist[::hs], valid_err_hist[::hs], 
                       C_valid_hist[::hs], C_test_hist[::hs], learn_rate_hist[::hs]], 
                      "%s_hist.pkl" % root_name)
